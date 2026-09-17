@@ -1,0 +1,46 @@
+name: 投稿の反応をまとめる
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # 毎週月曜 12:00（日本時間）
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "テスト（メールもファイルも作らず、表示するだけ）"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: insights
+
+jobs:
+  insights:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet anthropic
+      - name: 反応を集めてまとめる
+        env:
+          IG_TOKEN: ${{ secrets.IG_TOKEN }}
+          THREADS_TOKEN: ${{ secrets.THREADS_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          INSIGHTS_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.test && '1' || '0' }}
+        run: python3 insights.py
+      - name: 記録を残す
+        run: |
+          git config user.name "salon-ai-autopost"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A insights
+          if ! git diff --cached --quiet; then
+            git commit -m "反応の記録 $(TZ=Asia/Tokyo date +%F)"
+            git pull --rebase --quiet
+            git push
+          fi
