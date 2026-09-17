@@ -9,6 +9,7 @@
 環境変数
   ANTHROPIC_API_KEY  Claude の API キー（GitHubの秘密の設定）
   INBOX              写真を入れるフォルダ（既定：写真を入れる）
+  GENERATE_TEST      "1" なら予約はせず、既存の画像で文章を作って表示するだけ
 """
 import base64, io, json, os, re, shutil, subprocess, sys, tempfile
 from datetime import datetime, timedelta, timezone
@@ -134,7 +135,18 @@ def notify(entry, text, repo):
                     "--body", "\n".join(body)], check=True)
 
 
+def test_run():
+    """テスト：予約はせず、既存の投稿画像（2本目）で文章を作って表示するだけ。"""
+    settings = open("お店の設定.md").read()
+    view = [f"docs/p02/{i}.jpg" for i in range(1, 6)]
+    text = write_text(settings, view, "post")
+    print("【テスト】予約はしていません。AIが作った文章：")
+    print(json.dumps(text, ensure_ascii=False, indent=2))
+
+
 def main():
+    if os.environ.get("GENERATE_TEST") == "1":
+        return test_run()
     files = sorted(f for f in os.listdir(INBOX) if not f.startswith("."))
     images = [f for f in files if os.path.splitext(f)[1].lower() in IMAGE_EXT]
     videos = [f for f in files if os.path.splitext(f)[1].lower() in VIDEO_EXT]

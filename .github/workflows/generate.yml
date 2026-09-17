@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths: ["写真を入れる/**"]
   workflow_dispatch:
+    inputs:
+      test:
+        description: "テスト（予約はせず、文章を作って表示するだけ）"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -29,6 +34,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ github.token }}
+          GENERATE_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.test && '1' || '0' }}
         run: python3 generate.py
       - name: 予約を保存する
         run: |
