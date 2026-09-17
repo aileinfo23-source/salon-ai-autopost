@@ -46,13 +46,15 @@ def wait_finished(container_id, label):
 
 
 def main():
-    user = os.environ["IG_USER_ID"]
     base = os.environ["BASE_URL"].rstrip("/")
     dry = os.environ.get("DRY_RUN") == "1"
     today = os.environ.get("TARGET_DATE") or datetime.now(JST).strftime("%Y-%m-%d")
 
     # 毎回まずトークンが生きているか確かめる（切れていたらここで失敗→メールで気づける）
-    me = call("GET", "me", fields="username")
+    me = call("GET", "me", fields="user_id,username")
+    user = os.environ.get("IG_USER_ID") or me.get("user_id")
+    if me.get("user_id") and os.environ.get("IG_USER_ID") and me["user_id"] != os.environ["IG_USER_ID"]:
+        raise SystemExit(f"トークンのアカウント（@{me.get('username')}）と IG_USER_ID が一致しません")
     print(f"接続OK：@{me.get('username')}　対象日：{today}　{'【テスト】投稿はしません' if dry else ''}")
 
     schedule = json.load(open("schedule.json"))
