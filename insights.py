@@ -55,13 +55,14 @@ def collect(platform, now, min_age):
         items = post.call("threads", "GET", "me/threads", limit="30",
                           fields="id,text,media_type,timestamp,permalink").get("data", [])
         text_key, metrics = "text", TH_METRICS
-    rows = []
+    rows, skipped = [], 0
     for it in items:
         ts = datetime.fromisoformat(it["timestamp"].replace("+0000", "+00:00")).astimezone(JST)
         if now - ts < min_age:
             continue
         vals = metric_values(platform, it["id"], metrics)
         if not vals:
+            skipped += 1
             continue
         row = {"platform": platform, "id": it["id"], "date": ts.strftime("%Y-%m-%d"),
                "days": (now - ts).days, "type": it.get("media_type"), "title": first_line(it.get(text_key)),
@@ -69,6 +70,8 @@ def collect(platform, now, min_age):
         if platform == "instagram" and row.get("reach"):
             row["save_rate"] = round(100 * (row.get("saved") or 0) / row["reach"], 1)
         rows.append(row)
+    if skipped and not rows:
+        raise RuntimeError(f"投稿は{skipped}件ありましたが、反応の数字を取る権限がありません")
     return rows
 
 
@@ -118,14 +121,15 @@ def main():
         try:
             rows += collect(platform, now, timedelta(0) if test else timedelta(hours=24))  # テストでは今日の投稿も見る
         except RuntimeError as e:
-            if platform == "threads" and ("permission" in str(e).lower() or '"code":10' in str(e)):
+            if platform == "threads" and ("権限" in str(e) or "permission" in str(e).lower() or '"code":10' in str(e)):
                 notes.append("Threadsの反応は取れませんでした（アプリに `threads_manage_insights` の権限が必要です）")
             else:
                 notes.append(f"{platform}の反応を取れませんでした：{e}")
 
     ig = [r for r in rows if r["platform"] == "instagram"]
     th = [r for r in rows if r["platform"] == "threads"]
-    parts = [f"# 投稿の反応（{now:%Y-%m-%d} 時点・投稿から24時間以上たったもの）", ""]
+    scope = "テスト・今日の投稿も含む" if test else "投稿から24時間以上たったもの"
+    parts = [f"# 投稿の反応（{now:%Y-%m-%d} 時点・{scope}）", ""]
     if ig:
         parts += ["## インスタ", table(ig, "instagram"), ""]
     if th:
