@@ -1,4 +1,4 @@
-"""予約投稿（カルーセル）を、Instagram と Threads の公式APIで出す。
+"""予約投稿（写真1枚・カルーセル・リール／動画）を、Instagram と Threads の公式APIで出す。
 
 毎日 21:00（日本時間）に GitHub Actions から起動する。
 schedule.json の中で「今日の日付」かつ posted.json に無いものだけを投稿する（SNSごとに記録）。
@@ -48,17 +48,18 @@ def call(platform, method, path, **params):
             raise RuntimeError(f"APIエラー {e.code} {method} {path}: {body}")
 
 
-def wait_finished(platform, container_id, label):
+def wait_finished(platform, container_id, label, video=False):
     field = "status_code" if platform == "instagram" else "status"
     time.sleep(3)  # 作った直後は処理中なので、少し待ってから確認する（問い合わせ回数を減らす）
-    for _ in range(30):
+    tries, interval = (60, 10) if video else (30, 5)  # 動画は処理に時間がかかる（最大10分待つ）
+    for _ in range(tries):
         st = call(platform, "GET", container_id, fields=field).get(field)
         if st == "FINISHED":
             return
         if st in ("ERROR", "EXPIRED"):
             raise RuntimeError(f"{label} の処理に失敗しました（status={st}）")
-        time.sleep(5)
-    raise RuntimeError(f"{label} の処理が2分半たっても終わりませんでした")
+        time.sleep(interval)
+    raise RuntimeError(f"{label} の処理が{tries * interval // 60}分たっても終わりませんでした")
 
 
 def post_instagram(s, base, dry):
@@ -67,43 +68,65 @@ def post_instagram(s, base, dry):
     if me.get("user_id") and os.environ.get("IG_USER_ID") and me["user_id"] != os.environ["IG_USER_ID"]:
         raise RuntimeError(f"トークンのアカウント（@{me.get('username')}）と IG_USER_ID が一致しません")
     print(f"  [Instagram] 接続OK @{me.get('username')}")
-    children = []
-    for img in s["images"]:
-        c = call("instagram", "POST", f"{user}/media", image_url=f"{base}/{img}", is_carousel_item="true")
-        wait_finished("instagram", c["id"], img)
-        children.append(c["id"])
-        print(f"  [Instagram] 画像OK {img}")
-    carousel = call("instagram", "POST", f"{user}/media", media_type="CAROUSEL",
-                    children=",".join(children), caption=s["caption"])
-    wait_finished("instagram", carousel["id"], "カルーセル")
-    print("  [Instagram] カルーセルOK（投稿の直前まで確認できました）")
+    if s.get("video"):  # リール
+        c = call("instagram", "POST", f"{user}/media", media_type="REELS",
+                 video_url=f"{base}/{s['video']}", caption=s["caption"], share_to_feed="true")
+        wait_finished("instagram", c["id"], "リール", video=True)
+        label = "リール"
+    elif len(s["images"]) == 1:  # 写真1枚
+        c = call("instagram", "POST", f"{user}/media", image_url=f"{base}/{s['images'][0]}", caption=s["caption"])
+        wait_finished("instagram", c["id"], s["images"][0])
+        label = "写真"
+    else:  # カルーセル
+        children = []
+        for img in s["images"]:
+            ch = call("instagram", "POST", f"{user}/media", image_url=f"{base}/{img}", is_carousel_item="true")
+            wait_finished("instagram", ch["id"], img)
+            children.append(ch["id"])
+            print(f"  [Instagram] 画像OK {img}")
+        c = call("instagram", "POST", f"{user}/media", media_type="CAROUSEL",
+                 children=",".join(children), caption=s["caption"])
+        wait_finished("instagram", c["id"], "カルーセル")
+        label = "カルーセル"
+    print(f"  [Instagram] {label}OK（投稿の直前まで確認できました）")
     if dry:
         return None
-    return call("instagram", "POST", f"{user}/media_publish", creation_id=carousel["id"])["id"]
+    return call("instagram", "POST", f"{user}/media_publish", creation_id=c["id"])["id"]
 
 
 def post_threads(s, base, dry):
     me = call("threads", "GET", "me", fields="id,username")
     user = me["id"]
     print(f"  [Threads] 接続OK @{me.get('username')}")
-    children = []
-    for img in s["images"]:
+    extra = {"topic_tag": s["threads_topic"]} if s.get("threads_topic") else {}
+    if s.get("video"):
+        c = call("threads", "POST", f"{user}/threads", media_type="VIDEO",
+                 video_url=f"{base}/{s['video']}", text=s["threads_text"], **extra)
+        wait_finished("threads", c["id"], "動画", video=True)
+        label = "動画"
+    elif len(s["images"]) == 1:
         c = call("threads", "POST", f"{user}/threads", media_type="IMAGE",
-                 image_url=f"{base}/{img}", is_carousel_item="true")
-        # 画像の準備が終わる前にカルーセルを組むと「Invalid Carousel Children」で失敗する
-        wait_finished("threads", c["id"], img)
-        children.append(c["id"])
-        print(f"  [Threads] 画像OK {img}")
-    params = dict(media_type="CAROUSEL", children=",".join(children), text=s["threads_text"])
-    if s.get("threads_topic"):
-        params["topic_tag"] = s["threads_topic"]
-    carousel = call("threads", "POST", f"{user}/threads", **params)
-    wait_finished("threads", carousel["id"], "カルーセル")
-    print("  [Threads] カルーセルOK（投稿の直前まで確認できました）")
+                 image_url=f"{base}/{s['images'][0]}", text=s["threads_text"], **extra)
+        wait_finished("threads", c["id"], s["images"][0])
+        label = "写真"
+    else:
+        children = []
+        for img in s["images"]:
+            ch = call("threads", "POST", f"{user}/threads", media_type="IMAGE",
+                      image_url=f"{base}/{img}", is_carousel_item="true")
+            # 画像の準備が終わる前にカルーセルを組むと「Invalid Carousel Children」で失敗する
+            wait_finished("threads", ch["id"], img)
+            children.append(ch["id"])
+            print(f"  [Threads] 画像OK {img}")
+        c = call("threads", "POST", f"{user}/threads", media_type="CAROUSEL",
+                 children=",".join(children), text=s["threads_text"], **extra)
+        wait_finished("threads", c["id"], "カルーセル")
+        label = "カルーセル"
+    print(f"  [Threads] {label}OK（投稿の直前まで確認できました）")
     if dry:
         return None
     time.sleep(10)  # Threadsは作成直後に公開すると失敗することがあるので少し待つ
-    return call("threads", "POST", f"{user}/threads_publish", creation_id=carousel["id"])["id"]
+    return call("threads", "POST", f"{user}/threads_publish", creation_id=c["id"])["id"]
 
 
 def main():

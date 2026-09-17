@@ -1,0 +1,38 @@
+name: 接続の自動更新（トークン延長）
+
+on:
+  schedule:
+    - cron: "0 1 * * 1"   # 毎週月曜 10:00（日本時間）。トークンは60日有効なので、毎週延長すれば切れない
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: トークンを延長する
+        env:
+          IG_TOKEN: ${{ secrets.IG_TOKEN }}
+          THREADS_TOKEN: ${{ secrets.THREADS_TOKEN }}
+          OUT_DIR: ${{ runner.temp }}/tokens
+        run: python3 refresh_tokens.py
+      - name: 新しいトークンを秘密の設定に書き戻す
+        if: always()   # 片方の延長に失敗しても、成功した分は書き戻す
+        env:
+          # 秘密の設定を書き換えるための鍵（リポジトリの Secrets を読み書きできる GitHub の鍵）
+          GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
+          OUT_DIR: ${{ runner.temp }}/tokens
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "GH_SECRETS_TOKEN が未設定のため、書き戻しできません"; exit 1
+          fi
+          for name in IG_TOKEN THREADS_TOKEN; do
+            if [ -f "$OUT_DIR/$name" ]; then
+              gh secret set "$name" -R "$GITHUB_REPOSITORY" < "$OUT_DIR/$name"
+              echo "$name を更新しました"
+            fi
+          done
+          rm -rf "$OUT_DIR"
