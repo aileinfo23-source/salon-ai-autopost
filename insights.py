@@ -126,6 +126,14 @@ def main():
             else:
                 notes.append(f"{platform}の反応を取れませんでした：{e}")
 
+    if test and os.environ.get("THREADS_TOKEN"):
+        # 投稿が無くても、数字を読む権限があるかを確かめる（アカウント全体の表示回数を読んでみる）
+        try:
+            post.call("threads", "GET", "me/threads_insights", metric="views")
+            print("✅ Threadsの数字を読む権限：あり")
+        except RuntimeError as e:
+            print(f"❌ Threadsの数字を読む権限：なし（{e}）")
+
     ig = [r for r in rows if r["platform"] == "instagram"]
     th = [r for r in rows if r["platform"] == "threads"]
     scope = "テスト・今日の投稿も含む" if test else "投稿から24時間以上たったもの"
