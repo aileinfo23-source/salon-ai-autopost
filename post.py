@@ -25,16 +25,25 @@ def call(method, path, **params):
         req = urllib.request.Request(f"{GRAPH}/{path}?{data.decode()}")
     else:
         req = urllib.request.Request(f"{GRAPH}/{path}", data=data, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.load(r)
-    except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")
-        # トークンがログに出ないよう、エラー本文だけを出す
-        raise SystemExit(f"APIエラー {e.code} {method} {path}: {body}")
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode(errors="replace")
+            # 一時的な制限（回数制限など）は、待ってからやり直す
+            transient = '"is_transient":true' in body or '"code":4,' in body or e.code >= 500
+            if transient and attempt < 3:
+                wait = 60 * (attempt + 1)
+                print(f"  一時的なエラーのため {wait} 秒待ってやり直します（{e.code}）")
+                time.sleep(wait)
+                continue
+            # トークンがログに出ないよう、エラー本文だけを出す
+            raise SystemExit(f"APIエラー {e.code} {method} {path}: {body}")
 
 
 def wait_finished(container_id, label):
+    time.sleep(3)  # 作った直後は処理中なので、少し待ってから確認する（問い合わせ回数を減らす）
     for _ in range(30):
         st = call("GET", container_id, fields="status_code").get("status_code")
         if st == "FINISHED":
