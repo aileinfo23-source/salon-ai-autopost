@@ -16,7 +16,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: instagram-post   # 投稿の実行と同時に動いて、予定表を取り合わないように
+  group: generate   # 投稿の実行とは別の列にする（同じ列だと、待っている投稿の実行が取り消されることがあるため。保存時は pull --rebase で合わせる）
 
 jobs:
   generate:
