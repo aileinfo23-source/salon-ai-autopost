@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 1 * * 1"   # 毎週月曜 10:00（日本時間）。トークンは60日有効なので、毎週延長すれば切れない
   workflow_dispatch:
+    inputs:
+      check_only:
+        description: "テスト（トークンは延長せず、秘密の設定を書き換えられるかだけ確認）"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -13,14 +18,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: 書き換えの権限だけ確認する（テスト）
+        if: github.event_name == 'workflow_dispatch' && inputs.check_only
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
+        run: |
+          echo "check" | gh secret set WRITE_CHECK -R "$GITHUB_REPOSITORY"
+          gh secret delete WRITE_CHECK -R "$GITHUB_REPOSITORY"
+          echo "✅ 秘密の設定を書き換えられます（テスト用の値を書いて消しました）"
       - name: トークンを延長する
+        if: github.event_name != 'workflow_dispatch' || !inputs.check_only
         env:
           IG_TOKEN: ${{ secrets.IG_TOKEN }}
           THREADS_TOKEN: ${{ secrets.THREADS_TOKEN }}
           OUT_DIR: ${{ runner.temp }}/tokens
         run: python3 refresh_tokens.py
       - name: 新しいトークンを秘密の設定に書き戻す
-        if: always()   # 片方の延長に失敗しても、成功した分は書き戻す
+        if: always() && (github.event_name != 'workflow_dispatch' || !inputs.check_only)   # 片方の延長に失敗しても、成功した分は書き戻す
         env:
           # 秘密の設定を書き換えるための鍵（リポジトリの Secrets を読み書きできる GitHub の鍵）
           GH_TOKEN: ${{ secrets.GH_SECRETS_TOKEN }}
