@@ -90,6 +90,8 @@ def post_threads(s, base, dry):
     for img in s["images"]:
         c = call("threads", "POST", f"{user}/threads", media_type="IMAGE",
                  image_url=f"{base}/{img}", is_carousel_item="true")
+        # 画像の準備が終わる前にカルーセルを組むと「Invalid Carousel Children」で失敗する
+        wait_finished("threads", c["id"], img)
         children.append(c["id"])
         print(f"  [Threads] 画像OK {img}")
     params = dict(media_type="CAROUSEL", children=",".join(children), text=s["threads_text"])
