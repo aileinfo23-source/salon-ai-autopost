@@ -1,0 +1,43 @@
+name: インスタ予約投稿
+
+on:
+  schedule:
+    - cron: "0 12 * * *"   # 毎日 21:00（日本時間）。GitHubの混雑で数分〜30分ほど遅れることがある
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "テスト（投稿の直前で止める）"
+        type: boolean
+        default: true
+      target_date:
+        description: "テストで使う日付（YYYY-MM-DD。空なら今日）"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instagram-post   # 同時に2つ動いて二重投稿しないように
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 今日の分を投稿
+        env:
+          IG_TOKEN: ${{ secrets.IG_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
+          TARGET_DATE: ${{ inputs.target_date }}
+        run: python3 post.py
+      - name: 投稿の記録を残す
+        run: |
+          if ! git diff --quiet posted.json; then
+            git config user.name "salon-ai-autopost"
+            git config user.email "actions@users.noreply.github.com"
+            git add posted.json
+            git commit -m "投稿記録 $(TZ=Asia/Tokyo date +%F)"
+            git push
+          fi
