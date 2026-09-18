@@ -1,8 +1,11 @@
 """予約投稿（写真1枚・カルーセル・リール／動画）を、Instagram と Threads の公式APIで出す。
 
-毎日 21:00（日本時間）に GitHub Actions から起動する。
-schedule.json の中で「今日の日付」かつ posted.json に無いものだけを投稿する（SNSごとに記録）。
-日付がずれて取りこぼしたものは、二重投稿を避けるため自動では出さず、警告だけ出す。
+GitHub Actions の定時起動は遅れたり飛ばされたりするので、1日に何回か起動する（20:13〜翌2:13 の1時間おき）。
+21:00より前に起動したら21:00まで待って出す。21:00より後に起動したら、まだ出ていなければすぐ出す。
+0時〜3時の起動は「前日」として扱う（遅れて日付をまたいでも、前日の分を出せる）。
+schedule.json の中で「その日の日付」かつ posted.json に無いものだけを投稿する（SNSごとに記録）。一度出たら、あとの起動は何もしない。
+それより前の日付で取りこぼしたものは、二重投稿を避けるため自動では出さず、警告だけ出す。
+公開のAPIがエラーを返しても実際には出ていることがあるので、最近の投稿を見て確かめてから記録する。
 片方のSNSで失敗しても、もう片方は出す。最後に失敗があれば Actions を失敗にしてメールで知らせる。
 
 環境変数
@@ -11,7 +14,8 @@ schedule.json の中で「今日の日付」かつ posted.json に無いもの�
   THREADS_TOKEN   Threads のアクセストークン（未設定なら Threads は飛ばす）
   BASE_URL        画像を置いているGitHub PagesのURL（末尾の / なし）
   DRY_RUN         "1" なら投稿の直前（コンテナ作成と処理完了の確認）までで止める
-  TARGET_DATE     テスト用。YYYY-MM-DD を入れると、その日の投稿として扱う
+  TARGET_DATE     テスト用。YYYY-MM-DD を入れると、その日の投稿として扱う（待たずにすぐ動く）
+  WAIT_UNTIL      定時起動のときだけ "21:00" が入る。その時刻より前なら、その時刻まで待つ
 """
 import json, os, sys, time, urllib.parse, urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
@@ -62,6 +66,45 @@ def wait_finished(platform, container_id, label, video=False):
     raise RuntimeError(f"{label} の処理が{tries * interval // 60}分たっても終わりませんでした")
 
 
+def parse_time(t):
+    return datetime.strptime(t, "%Y-%m-%dT%H:%M:%S%z")
+
+
+def find_published(platform, user, text):
+    """最近の投稿の中に、同じ文章で30分以内に出たものがあれば、そのIDを返す。"""
+    if platform == "instagram":
+        items = call("instagram", "GET", f"{user}/media", fields="id,caption,timestamp", limit=5).get("data", [])
+        key = "caption"
+    else:
+        items = call("threads", "GET", f"{user}/threads", fields="id,text,timestamp", limit=5).get("data", [])
+        key = "text"
+    head = text.strip()[:40]
+    now = datetime.now(timezone.utc)
+    for it in items:
+        if (it.get(key) or "").strip()[:40] == head and it.get("timestamp") \
+                and now - parse_time(it["timestamp"]) < timedelta(minutes=30):
+            return it["id"]
+    return None
+
+
+def publish(platform, user, creation_id, text):
+    """公開する。エラーが返っても実際には出ていることがあるので、確かめてから1回だけやり直す。"""
+    path = f"{user}/media_publish" if platform == "instagram" else f"{user}/threads_publish"
+    for attempt in range(2):
+        try:
+            return call(platform, "POST", path, creation_id=creation_id)["id"]
+        except RuntimeError as e:
+            print(f"  [{platform}] 公開でエラーが返りました。本当に出ていないか確かめます：{e}")
+            time.sleep(30)
+            found = find_published(platform, user, text)
+            if found:
+                print(f"  [{platform}] 実際には公開されていました（media_id={found}）")
+                return found
+            if attempt == 1:
+                raise
+            print(f"  [{platform}] 出ていなかったので、もう一度公開します")
+
+
 def post_instagram(s, base, dry):
     me = call("instagram", "GET", "me", fields="user_id,username")
     user = os.environ.get("IG_USER_ID") or me.get("user_id")
@@ -91,7 +134,7 @@ def post_instagram(s, base, dry):
     print(f"  [Instagram] {label}OK（投稿の直前まで確認できました）")
     if dry:
         return None
-    return call("instagram", "POST", f"{user}/media_publish", creation_id=c["id"])["id"]
+    return publish("instagram", user, c["id"], s["caption"])
 
 
 def post_threads(s, base, dry):
@@ -126,13 +169,14 @@ def post_threads(s, base, dry):
     if dry:
         return None
     time.sleep(10)  # Threadsは作成直後に公開すると失敗することがあるので少し待つ
-    return call("threads", "POST", f"{user}/threads_publish", creation_id=c["id"])["id"]
+    return publish("threads", user, c["id"], s["threads_text"])
 
 
 def main():
     base = os.environ["BASE_URL"].rstrip("/")
     dry = os.environ.get("DRY_RUN") == "1"
-    today = os.environ.get("TARGET_DATE") or datetime.now(JST).strftime("%Y-%m-%d")
+    # 0時〜3時の起動は前日として扱う（定時起動が遅れて日付をまたいでも、前日の分を出せる）
+    today = os.environ.get("TARGET_DATE") or (datetime.now(JST) - timedelta(hours=3)).strftime("%Y-%m-%d")
     print(f"対象日：{today}　{'【テスト】投稿はしません' if dry else ''}")
 
     active = ["instagram"] + (["threads"] if os.environ.get("THREADS_TOKEN") else [])
@@ -156,6 +200,17 @@ def main():
     todays = [s for s in schedule if s["date"] == today]
     if not todays:
         print("今日の投稿はありません")
+    pending = [s for s in todays for p in active if (s["id"], p) not in done]
+    if not pending and todays:
+        print("今日の分はもう出ています")
+    wait_until = os.environ.get("WAIT_UNTIL")
+    if pending and wait_until and not os.environ.get("TARGET_DATE"):
+        h, m = map(int, wait_until.split(":"))
+        at = datetime.strptime(today, "%Y-%m-%d").replace(hour=h, minute=m, tzinfo=JST)
+        sec = (at - datetime.now(JST)).total_seconds()
+        if sec > 0:
+            print(f"{wait_until} まで {int(sec // 60)} 分待ちます")
+            time.sleep(sec)
     for s in todays:
         print(f"▶ {s['id']}｜{s['title']}")
         for plat, fn in (("instagram", post_instagram), ("threads", post_threads)):
