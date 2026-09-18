@@ -34,6 +34,7 @@ jobs:
           TARGET_DATE: ${{ inputs.target_date }}
         run: python3 post.py
       - name: 投稿の記録を残す
+        if: always()   # 片方が失敗しても、出せた分の記録は必ず残す（二重投稿を防ぐ）
         run: |
           if ! git diff --quiet posted.json; then
             git config user.name "salon-ai-autopost"
