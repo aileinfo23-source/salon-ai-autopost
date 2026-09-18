@@ -106,6 +106,11 @@ def write_text(settings, view_paths, kind):
     return json.loads(text)
 
 
+def threads_topic(settings):
+    m = re.search(r"トピックは「(.+?)」", settings)
+    return m.group(1) if m else "AI活用"
+
+
 def post_days(settings):
     m = re.search(r"## 投稿する曜日\s*\n-\s*(.+)", settings)
     days = {WEEKDAYS.index(c) for c in (m.group(1) if m else "月水金") if c in WEEKDAYS}
@@ -136,12 +141,13 @@ def notify(entry, text, repo):
 
 
 def test_run():
-    """テスト：予約はせず、既存の投稿画像（2本目）で文章を作って表示するだけ。"""
+    """テスト：予約はせず、既存の投稿画像（新1本目）で文章を作って表示するだけ。"""
     settings = open("お店の設定.md").read()
-    view = [f"docs/p02/{i}.jpg" for i in range(1, 6)]
+    view = [f"docs/n01/{i}.jpg" for i in range(1, 7)]
     text = write_text(settings, view, "post")
     print("【テスト】予約はしていません。AIが作った文章：")
     print(json.dumps(text, ensure_ascii=False, indent=2))
+    print("Threadsのトピック：", threads_topic(settings))
 
 
 def main():
@@ -180,7 +186,7 @@ def main():
             "title": text["title"],
             "caption": text["instagram_caption"].rstrip() + "\n\n" + " ".join(text["hashtags"]),
             "threads_text": text["threads_text"][:500],
-            "threads_topic": "サロン経営",
+            "threads_topic": threads_topic(settings),
             "made_by": "AI（" + MODEL + "）",
         })
         schedule.append(entry)
