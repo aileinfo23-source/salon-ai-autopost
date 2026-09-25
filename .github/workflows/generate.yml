@@ -6,6 +6,11 @@ on:
     paths: ["写真を入れる/**"]
   workflow_dispatch:
     inputs:
+      account:
+        description: "どのアカウント向けか"
+        type: choice
+        options: [shitsuji, ballet]
+        default: shitsuji
       test:
         description: "テスト（予約はせず、文章を作って表示するだけ）"
         type: boolean
@@ -34,6 +39,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ github.token }}
+          ACCOUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.account || '' }}
           GENERATE_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.test && '1' || '0' }}
         run: python3 generate.py
       - name: 予約を保存する

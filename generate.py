@@ -2,13 +2,15 @@
 
 - 写真（1枚でも複数枚でも）→ 1つの投稿（2枚以上ならカルーセル）
 - 動画 → 1本ずつ、インスタはリール、Threadsは動画の投稿
-- 文章は「お店の設定.md」に沿って Claude が作る（写真・動画のコマを見て書く）
-- 予約日は「お店の設定.md」の曜日のうち、明日以降で空いている日（時間は毎日21:00の起動に合わせる）
+- 文章は「設定_〈アカウント〉.md」（無ければ お店の設定.md）に沿って Claude が作る（写真・動画のコマを見て書く）
+- 予約日は設定ファイルの曜日のうち、明日以降で空いている日（時間は毎日21:00の起動に合わせる）
+- **複数アカウント対応**（2026-09-25〜）。ACCOUNT で切り替える。写真は「写真を入れる/〈アカウント〉」に入れる（無ければ「写真を入れる」直下）
 - 作ったら「【予約しました】」の Issue を立てる → GitHub からメールで届く。直したい時は schedule.json を編集、やめたい時はその予定を消す
 
 環境変数
   ANTHROPIC_API_KEY  Claude の API キー（GitHubの秘密の設定）
-  INBOX              写真を入れるフォルダ（既定：写真を入れる）
+  ACCOUNT            どのアカウント向けか（shitsuji / ballet。既定：shitsuji）
+  INBOX              写真を入れるフォルダ（既定：写真を入れる/〈アカウント〉、無ければ 写真を入れる）
   GENERATE_TEST      "1" なら予約はせず、既存の画像で文章を作って表示するだけ
 """
 import base64, io, json, os, re, shutil, subprocess, sys, tempfile
@@ -24,7 +26,25 @@ except ImportError:
     pass
 
 JST = timezone(timedelta(hours=9))
-INBOX = os.environ.get("INBOX", "写真を入れる")
+ACCOUNTS = ["shitsuji", "ballet"]
+ACCOUNT, SETTINGS_FILE, INBOX = "shitsuji", "お店の設定.md", "写真を入れる"
+
+
+def set_account(acct):
+    """アカウントを切り替える（設定ファイルと写真フォルダも合わせる）"""
+    global ACCOUNT, SETTINGS_FILE, INBOX
+    ACCOUNT = acct
+    SETTINGS_FILE = f"設定_{acct}.md" if os.path.exists(f"設定_{acct}.md") else "お店の設定.md"
+    sub = os.path.join("写真を入れる", acct)
+    INBOX = os.environ.get("INBOX") or (sub if os.path.isdir(sub) else "写真を入れる")
+
+
+def inbox_files(acct):
+    sub = os.path.join("写真を入れる", acct)
+    folder = sub if os.path.isdir(sub) else ("写真を入れる" if acct == "shitsuji" else None)
+    if not folder or not os.path.isdir(folder):
+        return []
+    return [f for f in sorted(os.listdir(folder)) if not f.startswith(".")]
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v"}
 WEEKDAYS = "月火水木金土日"
@@ -142,7 +162,7 @@ def notify(entry, text, repo):
 
 def test_run():
     """テスト：予約はせず、既存の投稿画像（新1本目）で文章を作って表示するだけ。"""
-    settings = open("お店の設定.md").read()
+    settings = open(SETTINGS_FILE).read()
     view = [f"docs/n01/{i}.jpg" for i in range(1, 7)]
     text = write_text(settings, view, "post")
     print("【テスト】予約はしていません。AIが作った文章：")
@@ -150,16 +170,15 @@ def test_run():
     print("Threadsのトピック：", threads_topic(settings))
 
 
-def main():
-    if os.environ.get("GENERATE_TEST") == "1":
-        return test_run()
+def run_one():
     files = sorted(f for f in os.listdir(INBOX) if not f.startswith("."))
     images = [f for f in files if os.path.splitext(f)[1].lower() in IMAGE_EXT]
     videos = [f for f in files if os.path.splitext(f)[1].lower() in VIDEO_EXT]
     if not images and not videos:
         print("新しい写真・動画はありません")
         return
-    settings = open("お店の設定.md").read()
+    settings = open(SETTINGS_FILE).read()
+    print(f"アカウント：{ACCOUNT}／設定：{SETTINGS_FILE}／写真：{INBOX}")
     schedule = json.load(open("schedule.json"))
     days = post_days(settings)
     repo = os.environ.get("GITHUB_REPOSITORY", "")
@@ -167,10 +186,10 @@ def main():
 
     batches = ([("post", images)] if images else []) + [("reel", [v]) for v in videos]
     for n, (kind, group) in enumerate(batches, 1):
-        pid = f"a{stamp}{n:02d}"
+        pid = f"{ACCOUNT[0]}{stamp}{n:02d}"
         os.makedirs(f"docs/{pid}", exist_ok=True)
         src = [os.path.join(INBOX, f) for f in group]
-        entry = {"id": pid, "date": next_free_date(schedule, days)}
+        entry = {"id": pid, "account": ACCOUNT, "date": next_free_date(schedule, days)}
         if kind == "reel":
             entry["video"] = f"{pid}/video.mp4"
             to_reel_mp4(src[0], f"docs/{entry['video']}")
@@ -198,6 +217,21 @@ def main():
 
     for f in images + videos:  # 使い終わった元の写真・動画はフォルダから片づける（変換したものは docs/ に残る）
         os.remove(os.path.join(INBOX, f))
+
+
+def main():
+    if os.environ.get("GENERATE_TEST") == "1":
+        set_account(os.environ.get("ACCOUNT", "shitsuji"))
+        return test_run()
+    # ACCOUNT の指定があればそれだけ。無ければ、写真が入っているアカウントを全部まわす
+    targets = [os.environ["ACCOUNT"]] if os.environ.get("ACCOUNT") else [a for a in ACCOUNTS if inbox_files(a)]
+    if not targets:
+        print("新しい写真・動画はありません")
+        return
+    for acct in targets:
+        set_account(acct)
+        print(f"――― {acct} ―――")
+        run_one()
 
 
 if __name__ == "__main__":

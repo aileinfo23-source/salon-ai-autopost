@@ -33,6 +33,9 @@ jobs:
           IG_TOKEN: ${{ secrets.IG_TOKEN }}
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
           THREADS_TOKEN: ${{ secrets.THREADS_TOKEN }}
+          IG_TOKEN_BALLET: ${{ secrets.IG_TOKEN_BALLET }}
+          IG_USER_ID_BALLET: ${{ secrets.IG_USER_ID_BALLET }}
+          THREADS_TOKEN_BALLET: ${{ secrets.THREADS_TOKEN_BALLET }}
           BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
           TARGET_DATE: ${{ inputs.target_date }}
