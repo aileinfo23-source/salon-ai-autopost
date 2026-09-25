@@ -18,7 +18,8 @@ schedule.json の中で「その日の日付」かつ posted.json に無いも�
   BASE_URL        画像を置いているGitHub PagesのURL（末尾の / なし）
   DRY_RUN         "1" なら投稿の直前（コンテナ作成と処理完了の確認）までで止める
   TARGET_DATE     テスト用。YYYY-MM-DD を入れると、その日の投稿として扱う（待たずにすぐ動く）
-  WAIT_UNTIL      定時起動のときだけ "1" が入る。**アカウントごとの時刻**（ACCOUNTS の time）より前なら、その回では出さずに次の起動へ回す
+  ※ 時刻の判定は**どの起動でも働く**（2026-09-26〜）。TARGET_DATE を入れたときだけ、時刻を見ずにすぐ出す
+     （以前は手で起動すると時刻を無視したため、試運転で朝に投稿が出てしまった）
 """
 import json, os, sys, time, urllib.parse, urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
@@ -232,11 +233,12 @@ def main():
     pending = [s for s in todays for p in platforms(acct_of(s)) if (s["id"], p) not in done]
     if not pending and todays:
         print("今日の分はもう出ています")
-    wait_until = os.environ.get("WAIT_UNTIL") and not os.environ.get("TARGET_DATE")
+    # 日付を指定したとき（テスト・取りこぼしを手で出すとき）だけ、時刻の判定をしない
+    check_time = not os.environ.get("TARGET_DATE")
 
     def due(acct):
-        """そのアカウントの投稿時刻を過ぎているか（定時起動のときだけ見る）"""
-        if not wait_until:
+        """そのアカウントの投稿時刻を過ぎているか"""
+        if not check_time:
             return True
         h, m = map(int, ACCOUNTS[acct].get("time", "21:00").split(":"))
         at = datetime.strptime(today, "%Y-%m-%d").replace(hour=h, minute=m, tzinfo=JST)
