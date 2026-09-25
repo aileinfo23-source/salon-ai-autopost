@@ -4,15 +4,23 @@
 新しいトークンは GitHub の秘密の設定に書き戻す（ワークフロー側で gh secret set）。
 トークンはログに出さない。ここでは交換した値をファイルに書くだけ。
 
+**複数アカウント対応**（2026-09-25〜）。設定されているものだけ延長する。
+
 環境変数
-  IG_TOKEN / THREADS_TOKEN  いまのトークン（未設定のSNSは飛ばす）
+  IG_TOKEN / THREADS_TOKEN                いまのトークン（AIの執事）
+  IG_TOKEN_BALLET / THREADS_TOKEN_BALLET  いまのトークン（バレエ教室）
+  ※未設定のものは飛ばす
   OUT_DIR                   新しいトークンを書き出すフォルダ
 """
 import json, os, sys, urllib.parse, urllib.request, urllib.error
 
+IG = ("https://graph.instagram.com/refresh_access_token", "ig_refresh_token")
+TH = ("https://graph.threads.net/refresh_access_token", "th_refresh_token")
 TARGETS = {
-    "IG_TOKEN": ("https://graph.instagram.com/refresh_access_token", "ig_refresh_token"),
-    "THREADS_TOKEN": ("https://graph.threads.net/refresh_access_token", "th_refresh_token"),
+    "IG_TOKEN": IG,
+    "THREADS_TOKEN": TH,
+    "IG_TOKEN_BALLET": IG,
+    "THREADS_TOKEN_BALLET": TH,
 }
 
 
