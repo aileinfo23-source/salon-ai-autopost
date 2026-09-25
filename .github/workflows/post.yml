@@ -2,10 +2,10 @@ name: インスタ予約投稿
 
 on:
   schedule:
-    # 本番の起動は「外の時報サービス（cron-job.org）」から21:00ちょうどにかける（2026-09-21〜）。
+    # 本番の起動は「外の時報サービス（cron-job.org）」から。執事＝21:00、バレエ＝12:00（2026-09-25〜）。
     # GitHubの定時起動は当てにならない（9/17は4時間遅れ、9/18は1回、9/21は10分おきにしても0回）ので、
     # ここは予備。20:13〜翌2:13に1時間おき。21:00前に動いたら21:00まで待つ。一度出たら何もしない。
-    - cron: "13 11-17 * * *"
+    - cron: "13 2-8,11-17 * * *"   # 予備。11:13〜17:13 と 20:13〜翌2:13（日本時間）
   workflow_dispatch:
     inputs:
       dry_run:
@@ -39,7 +39,7 @@ jobs:
           BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
           TARGET_DATE: ${{ inputs.target_date }}
-          WAIT_UNTIL: ${{ github.event_name == 'schedule' && '21:00' || '' }}
+          WAIT_UNTIL: ${{ github.event_name == 'schedule' && '1' || '' }}   # 定時起動のときは、アカウントごとの時刻より前なら出さない
         run: python3 post.py
       - name: 投稿の記録を残す
         if: always()   # 片方が失敗しても、出せた分の記録は必ず残す（二重投稿を防ぐ）

@@ -1,7 +1,8 @@
 """予約投稿（写真1枚・カルーセル・リール／動画）を、Instagram と Threads の公式APIで出す。
 
 本番の起動は外の時報サービス（cron-job.org）から21:00にかける。GitHub側の定時起動は当てにならないので予備（20:13〜翌2:13の1時間おき）。
-21:00より前に起動したら21:00まで待って出す。21:00より後に起動したら、まだ出ていなければすぐ出す。
+投稿の時刻は**アカウントごと**（執事＝21:00、バレエ＝12:00）。その時刻より前の起動では出さず、次の起動に回す。
+時刻を過ぎていて、まだ出ていなければ出す。
 0時〜3時の起動は「前日」として扱う（遅れて日付をまたいでも、前日の分を出せる）。
 schedule.json の中で「その日の日付」かつ posted.json に無いものだけを投稿する（SNSごとに記録）。一度出たら、あとの起動は何もしない。
 それより前の日付で取りこぼしたものは、二重投稿を避けるため自動では出さず、警告だけ出す。
@@ -17,7 +18,7 @@ schedule.json の中で「その日の日付」かつ posted.json に無いも�
   BASE_URL        画像を置いているGitHub PagesのURL（末尾の / なし）
   DRY_RUN         "1" なら投稿の直前（コンテナ作成と処理完了の確認）までで止める
   TARGET_DATE     テスト用。YYYY-MM-DD を入れると、その日の投稿として扱う（待たずにすぐ動く）
-  WAIT_UNTIL      定時起動のときだけ "21:00" が入る。その時刻より前なら、その時刻まで待つ
+  WAIT_UNTIL      定時起動のときだけ "1" が入る。**アカウントごとの時刻**（ACCOUNTS の time）より前なら、その回では出さずに次の起動へ回す
 """
 import json, os, sys, time, urllib.parse, urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
@@ -28,10 +29,10 @@ GRAPH = {
     "threads":   "https://graph.threads.net/v1.0",
 }
 ACCOUNTS = {
-    "shitsuji": {"label": "AIの執事（@ai.shitsuji）",
+    "shitsuji": {"label": "AIの執事（@ai.shitsuji）", "time": "21:00",
                  "instagram": {"token": "IG_TOKEN", "user": "IG_USER_ID"},
                  "threads":   {"token": "THREADS_TOKEN"}},
-    "ballet":   {"label": "バレエ教室（@kasuthijomion_ballet）",
+    "ballet":   {"label": "バレエ教室（@kasuthijomion_ballet）", "time": "12:00",
                  "instagram": {"token": "IG_TOKEN_BALLET", "user": "IG_USER_ID_BALLET"},
                  "threads":   {"token": "THREADS_TOKEN_BALLET"}},
 }
@@ -231,18 +232,22 @@ def main():
     pending = [s for s in todays for p in platforms(acct_of(s)) if (s["id"], p) not in done]
     if not pending and todays:
         print("今日の分はもう出ています")
-    wait_until = os.environ.get("WAIT_UNTIL")
-    if pending and wait_until and not os.environ.get("TARGET_DATE"):
-        h, m = map(int, wait_until.split(":"))
+    wait_until = os.environ.get("WAIT_UNTIL") and not os.environ.get("TARGET_DATE")
+
+    def due(acct):
+        """そのアカウントの投稿時刻を過ぎているか（定時起動のときだけ見る）"""
+        if not wait_until:
+            return True
+        h, m = map(int, ACCOUNTS[acct].get("time", "21:00").split(":"))
         at = datetime.strptime(today, "%Y-%m-%d").replace(hour=h, minute=m, tzinfo=JST)
-        sec = (at - datetime.now(JST)).total_seconds()
-        if sec > 0:
-            print(f"{wait_until} まで {int(sec // 60)} 分待ちます")
-            time.sleep(sec)
+        return datetime.now(JST) >= at - timedelta(minutes=2)
 
     for s in todays:
         acct = acct_of(s)
         if acct not in ACCOUNTS or not platforms(acct):
+            continue
+        if not due(acct):
+            print(f"⏳ {s['id']}｜{ACCOUNTS[acct]['label']} は {ACCOUNTS[acct].get('time','21:00')} から。この回では出しません")
             continue
         print(f"▶ {s['id']}｜{s['title']}　［{ACCOUNTS[acct]['label']}］")
         for plat, fn in (("instagram", post_instagram), ("threads", post_threads)):
