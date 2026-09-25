@@ -216,7 +216,8 @@ def main():
         for plat in platforms(acct):
             # 毎回トークンが生きているか確かめる（投稿の無い日も。切れていたらメールで気づける）
             try:
-                call(acct, plat, "GET", "me", fields="username")
+                me = call(acct, plat, "GET", "me", fields="username")
+                print(f"  ✅ {ACCOUNTS[acct]['label']} {plat} 接続OK @{me.get('username')}")
             except RuntimeError as e:
                 failures.append(f"{ACCOUNTS[acct]['label']} {plat}：接続できません {e}")
 
