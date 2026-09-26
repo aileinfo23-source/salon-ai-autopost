@@ -15,13 +15,21 @@ schedule.json の中で「その日の日付」かつ posted.json に無いも�
 環境変数（アカウントごと）
   shitsuji … IG_TOKEN / IG_USER_ID / THREADS_TOKEN
   ballet   … IG_TOKEN_BALLET / IG_USER_ID_BALLET / THREADS_TOKEN_BALLET
+  neru     … IG_TOKEN_NERU / IG_USER_ID_NERU / THREADS_TOKEN_NERU
+             ＋ X：X_API_KEY_NERU / X_API_SECRET_NERU / X_ACCESS_TOKEN_NERU / X_ACCESS_SECRET_NERU（OAuth 1.0a・期限なし）
+
+**X（2026-09-26〜・ネルだけ）**。予約に "x_posts"（ツリー。1つ目がポスト、2つ目からは返信）を書くと出す。
+  "x_posts": [{"text": "…", "images": ["neru01/1.jpg", …]}, …]   画像は1つに4枚まで。画像は docs/ から直接アップする
+  Xは**有料**（投稿1回 $0.015、本文にURLがあると $0.20）。なので本文にURLがあったら出さずに失敗にする。
+  毎回の接続確認はしない（お金がかかるため）。テスト（DRY_RUN）のときだけ、鍵が効くか自分のアカウントを読んで確かめる。
+  二重投稿を防ぐため、Xは公開のやり直しをしない。ツリーの途中で失敗したら、出せた1つ目のIDで記録して失敗を知らせる。
   BASE_URL        画像を置いているGitHub PagesのURL（末尾の / なし）
   DRY_RUN         "1" なら投稿の直前（コンテナ作成と処理完了の確認）までで止める
   TARGET_DATE     テスト用。YYYY-MM-DD を入れると、その日の投稿として扱う（待たずにすぐ動く）
   ※ 時刻の判定は**どの起動でも働く**（2026-09-26〜）。TARGET_DATE を入れたときだけ、時刻を見ずにすぐ出す
      （以前は手で起動すると時刻を無視したため、試運転で朝に投稿が出てしまった）
 """
-import json, os, sys, time, urllib.parse, urllib.request, urllib.error
+import base64, hashlib, hmac, json, os, re, secrets, sys, time, urllib.parse, urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
 
 JST = timezone(timedelta(hours=9))
@@ -36,11 +44,148 @@ ACCOUNTS = {
     "ballet":   {"label": "バレエ教室（@kasuthijomion_ballet）", "time": "12:00",
                  "instagram": {"token": "IG_TOKEN_BALLET", "user": "IG_USER_ID_BALLET"},
                  "threads":   {"token": "THREADS_TOKEN_BALLET"}},
+    "neru":     {"label": "ネル（@neru_ninja）", "time": "22:00",
+                 "instagram": {"token": "IG_TOKEN_NERU", "user": "IG_USER_ID_NERU"},
+                 "threads":   {"token": "THREADS_TOKEN_NERU"},
+                 "x":         {"keys": ("X_API_KEY_NERU", "X_API_SECRET_NERU",
+                                        "X_ACCESS_TOKEN_NERU", "X_ACCESS_SECRET_NERU")}},
 }
+PLATFORMS = ("instagram", "threads", "x")
+X_API = "https://api.x.com/2"
 
 
 def has_token(acct, platform):
-    return bool(os.environ.get(ACCOUNTS[acct][platform]["token"]))
+    conf = ACCOUNTS[acct].get(platform)
+    if not conf:
+        return False
+    if platform == "x":
+        return all(os.environ.get(k) for k in conf["keys"])
+    return bool(os.environ.get(conf["token"]))
+
+
+# ---- X（OAuth 1.0a で署名して呼ぶ） ----
+
+def _pct(v):
+    return urllib.parse.quote(str(v), safe="~-._")
+
+
+def oauth1_header(method, url, query, keys, nonce=None, stamp=None):
+    """OAuth 1.0a の Authorization ヘッダーを作る。署名に入れるのは URL のクエリとOAuthの値だけ（JSON・multipartの本文は入れない）。"""
+    ck, cs, tk, ts = keys
+    oauth = {"oauth_consumer_key": ck, "oauth_nonce": nonce or secrets.token_hex(16),
+             "oauth_signature_method": "HMAC-SHA1", "oauth_timestamp": str(stamp or int(time.time())),
+             "oauth_token": tk, "oauth_version": "1.0"}
+    pairs = sorted((_pct(k), _pct(v)) for k, v in list(query.items()) + list(oauth.items()))
+    param_str = "&".join(f"{k}={v}" for k, v in pairs)
+    base_str = "&".join([method.upper(), _pct(url), _pct(param_str)])
+    key = f"{_pct(cs)}&{_pct(ts)}".encode()
+    oauth["oauth_signature"] = base64.b64encode(hmac.new(key, base_str.encode(), hashlib.sha1).digest()).decode()
+    return "OAuth " + ", ".join(f'{_pct(k)}="{_pct(v)}"' for k, v in sorted(oauth.items()))
+
+
+def x_call(acct, method, path, json_body=None, multipart=None, query=None):
+    """Xを呼ぶ。回数制限（429）だけ待ってやり直す。ポストの作成は二重にならないよう、それ以外ではやり直さない。"""
+    keys = tuple(os.environ[k] for k in ACCOUNTS[acct]["x"]["keys"])
+    url = f"{X_API}/{path}"
+    query = query or {}
+    full = url + ("?" + urllib.parse.urlencode(query) if query else "")
+    for attempt in range(3):
+        headers = {"Authorization": oauth1_header(method, url, query, keys)}
+        data = None
+        if json_body is not None:
+            data = json.dumps(json_body).encode()
+            headers["Content-Type"] = "application/json"
+        elif multipart is not None:
+            boundary = "----neru" + secrets.token_hex(8)
+            parts = []
+            for name, value in multipart.items():
+                if isinstance(value, bytes):
+                    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="image"\r\n'
+                                 f'Content-Type: application/octet-stream\r\n\r\n'.encode() + value + b"\r\n")
+                else:
+                    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+            data = b"".join(parts) + f"--{boundary}--\r\n".encode()
+            headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+        req = urllib.request.Request(full, data=data, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode(errors="replace")
+            if e.code == 429 and attempt < 2:
+                print(f"  [X] 回数制限のため {60 * (attempt + 1)} 秒待ってやり直します")
+                time.sleep(60 * (attempt + 1))
+                continue
+            raise RuntimeError(f"APIエラー {e.code} {method} {path}: {body}")
+
+
+URL_RE = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.(com|jp|net|ee|me|co|io|ly)\b", re.I)
+
+
+def x_length(text):
+    """Xの文字数（日本語などは2、英数字は1。上限280）"""
+    n = 0
+    for ch in text:
+        o = ord(ch)
+        light = (o <= 0x10FF or 0x2000 <= o <= 0x200D or 0x2010 <= o <= 0x201F or 0x2032 <= o <= 0x2037)
+        n += 1 if light else 2
+    return n
+
+
+class PartialPost(RuntimeError):
+    """ツリーの途中で失敗した（1つ目は出ている）"""
+    def __init__(self, first_id, msg):
+        super().__init__(msg)
+        self.first_id = first_id
+
+
+def check_x_posts(s):
+    parts = s.get("x_posts") or []
+    problems = []
+    for i, p in enumerate(parts, 1):
+        if URL_RE.search(p["text"]):
+            problems.append(f"{i}つ目にURLがあります（Xでは1回$0.20かかるので入れない）")
+        if x_length(p["text"]) > 280:
+            problems.append(f"{i}つ目が長すぎます（{x_length(p['text'])}/280）")
+        if len(p.get("images", [])) > 4:
+            problems.append(f"{i}つ目の画像が{len(p['images'])}枚（Xは4枚まで）")
+        for img in p.get("images", []):
+            if not os.path.exists(os.path.join("docs", img)):
+                problems.append(f"画像がありません docs/{img}")
+    return problems
+
+
+def post_x(acct, s, base, dry):
+    problems = check_x_posts(s)
+    if problems:
+        raise RuntimeError("Xの予約に問題があります：" + "／".join(problems))
+    parts = s["x_posts"]
+    if dry:
+        me = x_call(acct, "GET", "users/me").get("data", {})
+        print(f"  [X] 接続OK @{me.get('username')}（{len(parts)}つのツリー・文字数と画像OK。テストなのでアップも投稿もしません）")
+        return None
+    first_id = prev_id = None
+    for i, p in enumerate(parts, 1):
+        try:
+            media_ids = []
+            for img in p.get("images", []):
+                with open(os.path.join("docs", img), "rb") as f:
+                    up = x_call(acct, "POST", "media/upload",
+                                multipart={"media": f.read(), "media_category": "tweet_image"})
+                media_ids.append(up["data"]["id"])
+            body = {"text": p["text"]}
+            if media_ids:
+                body["media"] = {"media_ids": media_ids}
+            if prev_id:
+                body["reply"] = {"in_reply_to_tweet_id": prev_id}
+            prev_id = x_call(acct, "POST", "tweets", json_body=body)["data"]["id"]
+            print(f"  [X] {i}/{len(parts)} 出しました id={prev_id}")
+            first_id = first_id or prev_id
+        except RuntimeError as e:
+            if first_id:
+                raise PartialPost(first_id, f"ツリーの{i}つ目で失敗（1つ目は出ています）：{e}")
+            raise
+    return first_id
 
 
 def call(acct, platform, method, path, **params):
@@ -203,7 +348,7 @@ def main():
         return s.get("account", "shitsuji")
 
     def platforms(acct):
-        return [p for p in ("instagram", "threads") if has_token(acct, p)]
+        return [p for p in PLATFORMS if has_token(acct, p)]
 
     # 今日の予約に出てくるアカウント（無ければトークンのある全アカウント）の接続を確かめる
     todays = [s for s in schedule if s["date"] == today]
@@ -216,6 +361,9 @@ def main():
             print(f"⚠ {ACCOUNTS[acct]['label']}：トークンが設定されていないので飛ばします")
             continue
         for plat in platforms(acct):
+            if plat == "x":
+                print(f"  ✅ {ACCOUNTS[acct]['label']} x 鍵あり（Xは有料なので毎回の接続確認はしない）")
+                continue
             # 毎回トークンが生きているか確かめる（投稿の無い日も。切れていたらメールで気づける）
             try:
                 me = call(acct, plat, "GET", "me", fields="username")
@@ -224,13 +372,17 @@ def main():
                 failures.append(f"{ACCOUNTS[acct]['label']} {plat}：接続できません {e}")
 
     missed = [(s["id"], p) for s in schedule if s["date"] < today and acct_of(s) in ACCOUNTS
-              for p in platforms(acct_of(s)) if (s["id"], p) not in done]
+              for p in platforms(acct_of(s)) if (s["id"], p) not in done
+              and (p != "x" or s.get("x_posts")) and (p != "threads" or s.get("threads_text"))]
     if missed and not os.environ.get("TARGET_DATE"):
         print(f"⚠ 過去の日付で未投稿のものがあります（自動では出しません）：{missed}")
 
     if not todays:
         print("今日の投稿はありません")
-    pending = [s for s in todays for p in platforms(acct_of(s)) if (s["id"], p) not in done]
+    def wants(s, p):
+        return {"instagram": True, "threads": bool(s.get("threads_text")), "x": bool(s.get("x_posts"))}[p]
+
+    pending = [s for s in todays for p in platforms(acct_of(s)) if wants(s, p) and (s["id"], p) not in done]
     if not pending and todays:
         print("今日の分はもう出ています")
     # 日付を指定したとき（テスト・取りこぼしを手で出すとき）だけ、時刻の判定をしない
@@ -252,13 +404,17 @@ def main():
             print(f"⏳ {s['id']}｜{ACCOUNTS[acct]['label']} は {ACCOUNTS[acct].get('time','21:00')} から。この回では出しません")
             continue
         print(f"▶ {s['id']}｜{s['title']}　［{ACCOUNTS[acct]['label']}］")
-        for plat, fn in (("instagram", post_instagram), ("threads", post_threads)):
+        for plat, fn in (("instagram", post_instagram), ("threads", post_threads), ("x", post_x)):
             if plat not in platforms(acct) or (s["id"], plat) in done:
                 continue
-            if plat == "threads" and not s.get("threads_text"):
+            if not wants(s, plat):
                 continue
             try:
                 media_id = fn(acct, s, base, dry)
+            except PartialPost as e:
+                media_id = e.first_id   # 出せた分は記録する（二重投稿を防ぐ）
+                failures.append(f"{s['id']} {plat}：{e}")
+                print(f"  ❌ {plat} 途中で失敗：{e}")
             except RuntimeError as e:
                 failures.append(f"{s['id']} {plat}：{e}")
                 print(f"  ❌ {plat} 失敗：{e}")

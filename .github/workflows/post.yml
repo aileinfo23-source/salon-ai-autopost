@@ -2,7 +2,7 @@ name: インスタ予約投稿
 
 on:
   schedule:
-    # 本番の起動は「外の時報サービス（cron-job.org）」から。執事＝21:00、バレエ＝12:00（2026-09-25〜）。
+    # 本番の起動は「外の時報サービス（cron-job.org）」から。執事＝21:00、バレエ＝12:00、ネル＝22:00（2026-09-26〜）。
     # GitHubの定時起動は当てにならない（9/17は4時間遅れ、9/18は1回、9/21は10分おきにしても0回）ので、
     # ここは予備。20:13〜翌2:13に1時間おき。21:00前に動いたら21:00まで待つ。一度出たら何もしない。
     - cron: "13 2-8,11-17 * * *"   # 予備。11:13〜17:13 と 20:13〜翌2:13（日本時間）
@@ -36,6 +36,13 @@ jobs:
           IG_TOKEN_BALLET: ${{ secrets.IG_TOKEN_BALLET }}
           IG_USER_ID_BALLET: ${{ secrets.IG_USER_ID_BALLET }}
           THREADS_TOKEN_BALLET: ${{ secrets.THREADS_TOKEN_BALLET }}
+          IG_TOKEN_NERU: ${{ secrets.IG_TOKEN_NERU }}
+          IG_USER_ID_NERU: ${{ secrets.IG_USER_ID_NERU }}
+          THREADS_TOKEN_NERU: ${{ secrets.THREADS_TOKEN_NERU }}
+          X_API_KEY_NERU: ${{ secrets.X_API_KEY_NERU }}
+          X_API_SECRET_NERU: ${{ secrets.X_API_SECRET_NERU }}
+          X_ACCESS_TOKEN_NERU: ${{ secrets.X_ACCESS_TOKEN_NERU }}
+          X_ACCESS_SECRET_NERU: ${{ secrets.X_ACCESS_SECRET_NERU }}
           BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
           TARGET_DATE: ${{ inputs.target_date }}

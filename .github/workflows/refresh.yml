@@ -33,6 +33,8 @@ jobs:
           THREADS_TOKEN: ${{ secrets.THREADS_TOKEN }}
           IG_TOKEN_BALLET: ${{ secrets.IG_TOKEN_BALLET }}
           THREADS_TOKEN_BALLET: ${{ secrets.THREADS_TOKEN_BALLET }}
+          IG_TOKEN_NERU: ${{ secrets.IG_TOKEN_NERU }}
+          THREADS_TOKEN_NERU: ${{ secrets.THREADS_TOKEN_NERU }}
           OUT_DIR: ${{ runner.temp }}/tokens
         run: python3 refresh_tokens.py
       - name: 新しいトークンを秘密の設定に書き戻す
@@ -45,7 +47,7 @@ jobs:
           if [ -z "$GH_TOKEN" ]; then
             echo "GH_SECRETS_TOKEN が未設定のため、書き戻しできません"; exit 1
           fi
-          for name in IG_TOKEN THREADS_TOKEN IG_TOKEN_BALLET THREADS_TOKEN_BALLET; do
+          for name in IG_TOKEN THREADS_TOKEN IG_TOKEN_BALLET THREADS_TOKEN_BALLET IG_TOKEN_NERU THREADS_TOKEN_NERU; do
             if [ -f "$OUT_DIR/$name" ]; then
               gh secret set "$name" -R "$GITHUB_REPOSITORY" < "$OUT_DIR/$name"
               echo "$name を更新しました"

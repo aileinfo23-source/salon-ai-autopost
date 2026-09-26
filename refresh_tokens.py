@@ -9,6 +9,7 @@
 環境変数
   IG_TOKEN / THREADS_TOKEN                いまのトークン（AIの執事）
   IG_TOKEN_BALLET / THREADS_TOKEN_BALLET  いまのトークン（バレエ教室）
+  IG_TOKEN_NERU / THREADS_TOKEN_NERU      いまのトークン（ネル）※Xの鍵は期限が無いので延長しない
   ※未設定のものは飛ばす
   OUT_DIR                   新しいトークンを書き出すフォルダ
 """
@@ -21,6 +22,8 @@ TARGETS = {
     "THREADS_TOKEN": TH,
     "IG_TOKEN_BALLET": IG,
     "THREADS_TOKEN_BALLET": TH,
+    "IG_TOKEN_NERU": IG,
+    "THREADS_TOKEN_NERU": TH,
 }
 
 
