@@ -16,7 +16,9 @@ NERU_ENV = {
     "X_API_KEY_NERU": "ck", "X_API_SECRET_NERU": "cs", "X_ACCESS_TOKEN_NERU": "tk", "X_ACCESS_SECRET_NERU": "ts",
 }
 ALL_KEYS = list(NERU_ENV) + ["IG_TOKEN", "IG_USER_ID", "THREADS_TOKEN", "IG_TOKEN_BALLET", "IG_USER_ID_BALLET",
-                             "THREADS_TOKEN_BALLET", "TARGET_DATE", "DRY_RUN"]
+                             "THREADS_TOKEN_BALLET", "TARGET_DATE", "DRY_RUN",
+                             "X_API_KEY_SHITSUJI", "X_API_SECRET_SHITSUJI",
+                             "X_ACCESS_TOKEN_SHITSUJI", "X_ACCESS_SECRET_SHITSUJI"]
 
 
 class Resp(io.BytesIO):
@@ -202,6 +204,23 @@ code, posted, f = run([shitsuji], dict(NERU_ENV, IG_TOKEN="a", IG_USER_ID="900",
                                        TARGET_DATE="2026-10-05"))
 check("執事の日はXを呼ばない", code == 0 and f.count("api.x.com") == 0 and len(posted) == 2
       and all(p["account"] == "shitsuji" for p in posted))
+
+# 11b. 執事にXの鍵と x_posts があれば、執事もXに出す（2026-09-27〜）
+SH_X = {"X_API_KEY_SHITSUJI": "ck", "X_API_SECRET_SHITSUJI": "cs",
+        "X_ACCESS_TOKEN_SHITSUJI": "tk", "X_ACCESS_SECRET_SHITSUJI": "ts"}
+sh_env = dict(NERU_ENV, IG_TOKEN="a", IG_USER_ID="900", THREADS_TOKEN="b",
+              TARGET_DATE="2026-10-05", **SH_X)
+sh_x = dict(shitsuji, x_posts=[{"text": "1つ目", "images": ["neru01/1.jpg"]},
+                               {"text": "2つ目", "images": []}])
+code, posted, f = run([sh_x], sh_env)
+check("執事もXに出せる", code == 0 and len(posted) == 3 and len(f.tweets) == 2
+      and [p["platform"] for p in posted].count("x") == 1
+      and all(p["account"] == "shitsuji" for p in posted))
+
+# 11c. 執事のXの鍵が無ければ、Xだけ飛ばす（インスタ・Threadsは出る）
+code, posted, f = run([sh_x], dict(NERU_ENV, IG_TOKEN="a", IG_USER_ID="900", THREADS_TOKEN="b",
+                                   TARGET_DATE="2026-10-05"))
+check("執事のXの鍵が無ければXだけ飛ばす", code == 0 and len(posted) == 2 and f.count("api.x.com") == 0)
 
 # 12. ネルの鍵が無ければ、ネルの予約は飛ばす（失敗にしない）
 code, posted, f = run([neru_entry()], {"TARGET_DATE": "2026-10-05"})

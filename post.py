@@ -14,11 +14,12 @@ schedule.json の中で「その日の日付」かつ posted.json に無いも�
 
 環境変数（アカウントごと）
   shitsuji … IG_TOKEN / IG_USER_ID / THREADS_TOKEN
+             ＋ X：X_API_KEY_SHITSUJI / X_API_SECRET_SHITSUJI / X_ACCESS_TOKEN_SHITSUJI / X_ACCESS_SECRET_SHITSUJI
   ballet   … IG_TOKEN_BALLET / IG_USER_ID_BALLET / THREADS_TOKEN_BALLET
   neru     … IG_TOKEN_NERU / IG_USER_ID_NERU / THREADS_TOKEN_NERU
              ＋ X：X_API_KEY_NERU / X_API_SECRET_NERU / X_ACCESS_TOKEN_NERU / X_ACCESS_SECRET_NERU（OAuth 1.0a・期限なし）
 
-**X（2026-09-26〜・ネルだけ）**。予約に "x_posts"（ツリー。1つ目がポスト、2つ目からは返信）を書くと出す。
+**X（2026-09-26〜ネル、2026-09-27〜執事）**。予約に "x_posts"（ツリー。1つ目がポスト、2つ目からは返信）を書くと出す。
   "x_posts": [{"text": "…", "images": ["neru01/1.jpg", …]}, …]   画像は1つに4枚まで。画像は docs/ から直接アップする
   Xは**有料**（投稿1回 $0.015、本文にURLがあると $0.20）。なので本文にURLがあったら出さずに失敗にする。
   毎回の接続確認はしない（お金がかかるため）。テスト（DRY_RUN）のときだけ、鍵が効くか自分のアカウントを読んで確かめる。
@@ -40,7 +41,9 @@ GRAPH = {
 ACCOUNTS = {
     "shitsuji": {"label": "AIの執事（@ai.shitsuji）", "time": "21:00",
                  "instagram": {"token": "IG_TOKEN", "user": "IG_USER_ID"},
-                 "threads":   {"token": "THREADS_TOKEN"}},
+                 "threads":   {"token": "THREADS_TOKEN"},
+                 "x":         {"keys": ("X_API_KEY_SHITSUJI", "X_API_SECRET_SHITSUJI",
+                                        "X_ACCESS_TOKEN_SHITSUJI", "X_ACCESS_SECRET_SHITSUJI")}},
     "ballet":   {"label": "バレエ教室（@kasuthijomion_ballet）", "time": "12:00",
                  "instagram": {"token": "IG_TOKEN_BALLET", "user": "IG_USER_ID_BALLET"},
                  "threads":   {"token": "THREADS_TOKEN_BALLET"}},

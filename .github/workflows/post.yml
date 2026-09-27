@@ -36,6 +36,10 @@ jobs:
           IG_TOKEN_BALLET: ${{ secrets.IG_TOKEN_BALLET }}
           IG_USER_ID_BALLET: ${{ secrets.IG_USER_ID_BALLET }}
           THREADS_TOKEN_BALLET: ${{ secrets.THREADS_TOKEN_BALLET }}
+          X_API_KEY_SHITSUJI: ${{ secrets.X_API_KEY_SHITSUJI }}
+          X_API_SECRET_SHITSUJI: ${{ secrets.X_API_SECRET_SHITSUJI }}
+          X_ACCESS_TOKEN_SHITSUJI: ${{ secrets.X_ACCESS_TOKEN_SHITSUJI }}
+          X_ACCESS_SECRET_SHITSUJI: ${{ secrets.X_ACCESS_SECRET_SHITSUJI }}
           IG_TOKEN_NERU: ${{ secrets.IG_TOKEN_NERU }}
           IG_USER_ID_NERU: ${{ secrets.IG_USER_ID_NERU }}
           THREADS_TOKEN_NERU: ${{ secrets.THREADS_TOKEN_NERU }}
