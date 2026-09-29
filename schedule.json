@@ -356,7 +356,8 @@
           "neru02/5.jpg"
         ]
       }
-    ]
+    ],
+    "video": "neru02/reel.mp4"
   },
   {
     "id": "b06",
@@ -487,7 +488,8 @@
           "neru03/6.jpg"
         ]
       }
-    ]
+    ],
+    "video": "neru03/reel.mp4"
   },
   {
     "id": "b08",
@@ -598,7 +600,8 @@
           "neru04/6.jpg"
         ]
       }
-    ]
+    ],
+    "video": "neru04/reel.mp4"
   },
   {
     "id": "b10",
@@ -692,7 +695,8 @@
           "neru05/6.jpg"
         ]
       }
-    ]
+    ],
+    "video": "neru05/reel.mp4"
   },
   {
     "id": "l07",
@@ -790,7 +794,8 @@
           "neru06/5.jpg"
         ]
       }
-    ]
+    ],
+    "video": "neru06/reel.mp4"
   },
   {
     "id": "l08",
@@ -890,7 +895,8 @@
           "neru07/6.jpg"
         ]
       }
-    ]
+    ],
+    "video": "neru07/reel.mp4"
   },
   {
     "id": "neru09",
@@ -916,7 +922,8 @@
           "neru09/4.jpg"
         ]
       }
-    ]
+    ],
+    "video": "neru09/reel.mp4"
   },
   {
     "id": "neru08",
@@ -949,7 +956,8 @@
           "neru08/5.jpg"
         ]
       }
-    ]
+    ],
+    "video": "neru08/reel.mp4"
   },
   {
     "id": "neru10",
@@ -984,6 +992,7 @@
           "neru10/6.jpg"
         ]
       }
-    ]
+    ],
+    "video": "neru10/reel.mp4"
   }
 ]
