@@ -19,6 +19,10 @@ schedule.json の中で「その日の日付」かつ posted.json に無いも�
   neru     … IG_TOKEN_NERU / IG_USER_ID_NERU / THREADS_TOKEN_NERU
              ＋ X：X_API_KEY_NERU / X_API_SECRET_NERU / X_ACCESS_TOKEN_NERU / X_ACCESS_SECRET_NERU（OAuth 1.0a・期限なし）
 
+**ストーリー（2026-09-30〜）**。予約に "story": "story/01_1.jpg" と書くと、その画像をインスタのストーリーに出す。
+  ストーリーはインスタだけ（Threadsに同じ仕組みは無い）。文章は付かない（APIではスタンプ・リンクも付けられない）。
+  1日に何本でも並べられる（同じ日付の予約を複数書く）。24時間で消えるが、記録は posted.json に残る。
+
 **X（2026-09-26〜ネル、2026-09-27〜執事）**。予約に "x_posts"（ツリー。1つ目がポスト、2つ目からは返信）を書くと出す。
   "x_posts": [{"text": "…", "images": ["neru01/1.jpg", …]}, …]   画像は1つに4枚まで。画像は docs/ から直接アップする
   Xは**有料**（投稿1回 $0.015、本文にURLがあると $0.20）。なので本文にURLがあったら出さずに失敗にする。
@@ -256,6 +260,10 @@ def publish(acct, platform, user, creation_id, text):
         try:
             return call(acct, platform, "POST", path, creation_id=creation_id)["id"]
         except RuntimeError as e:
+            if text is None:
+                # ストーリーは投稿の一覧に出てこないので、後から確かめられない。
+                # 二重に出さないため、やり直さずに失敗として知らせる（出ていたかは画面で見る）
+                raise
             print(f"  [{platform}] 公開でエラーが返りました。本当に出ていないか確かめます：{e}")
             time.sleep(30)
             found = find_published(acct, platform, user, text)
@@ -274,6 +282,14 @@ def post_instagram(acct, s, base, dry):
     if me.get("user_id") and want and me["user_id"] != want:
         raise RuntimeError(f"トークンのアカウント（@{me.get('username')}）とユーザーIDが一致しません")
     print(f"  [Instagram] 接続OK @{me.get('username')}")
+    if s.get("story"):  # ストーリー（24時間で消える。インスタだけ）
+        c = call(acct, "instagram", "POST", f"{user}/media", media_type="STORIES",
+                 image_url=f"{base}/{s['story']}")
+        wait_finished(acct, "instagram", c["id"], "ストーリー")
+        print("  [Instagram] ストーリーOK（投稿の直前まで確認できました）")
+        if dry:
+            return None
+        return publish(acct, "instagram", user, c["id"], None)
     if s.get("video"):  # リール
         c = call(acct, "instagram", "POST", f"{user}/media", media_type="REELS",
                  video_url=f"{base}/{s['video']}", caption=s["caption"], share_to_feed="true")
@@ -383,7 +399,9 @@ def main():
     if not todays:
         print("今日の投稿はありません")
     def wants(s, p):
-        return {"instagram": True, "threads": bool(s.get("threads_text")), "x": bool(s.get("x_posts"))}[p]
+        # ストーリーはインスタだけ（Threadsにストーリーは無い。Xも出さない）
+        return {"instagram": True, "threads": bool(s.get("threads_text")) and not s.get("story"),
+                "x": bool(s.get("x_posts")) and not s.get("story")}[p]
 
     pending = [s for s in todays for p in platforms(acct_of(s)) if wants(s, p) and (s["id"], p) not in done]
     if not pending and todays:
