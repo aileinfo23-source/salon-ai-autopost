@@ -1,7 +1,7 @@
 """予約投稿（写真1枚・カルーセル・リール／動画）を、Instagram と Threads の公式APIで出す。
 
 本番の起動は外の時報サービス（cron-job.org）から21:00にかける。GitHub側の定時起動は当てにならないので予備（20:13〜翌2:13の1時間おき）。
-投稿の時刻は**アカウントごと**（執事＝21:00、バレエ＝12:00）。その時刻より前の起動では出さず、次の起動に回す。
+投稿の時刻は**アカウントごと**（執事＝21:00、バレエ＝12:00）。予約に "time" を書けば、その回だけ別の時刻にできる（例：ストーリーの朝と夕方）。その時刻より前の起動では出さず、次の起動に回す。
 時刻を過ぎていて、まだ出ていなければ出す。
 0時〜3時の起動は「前日」として扱う（遅れて日付をまたいでも、前日の分を出せる）。
 schedule.json の中で「その日の日付」かつ posted.json に無いものだけを投稿する（SNSごとに記録）。一度出たら、あとの起動は何もしない。
@@ -409,11 +409,15 @@ def main():
     # 日付を指定したとき（テスト・取りこぼしを手で出すとき）だけ、時刻の判定をしない
     check_time = not os.environ.get("TARGET_DATE")
 
-    def due(acct):
-        """そのアカウントの投稿時刻を過ぎているか"""
+    def time_of(s):
+        """その予約の投稿時刻。予約に "time" があればそれ、無ければアカウントの時刻"""
+        return s.get("time") or ACCOUNTS[acct_of(s)].get("time", "21:00")
+
+    def due(s):
+        """投稿時刻を過ぎているか"""
         if not check_time:
             return True
-        h, m = map(int, ACCOUNTS[acct].get("time", "21:00").split(":"))
+        h, m = map(int, time_of(s).split(":"))
         at = datetime.strptime(today, "%Y-%m-%d").replace(hour=h, minute=m, tzinfo=JST)
         return datetime.now(JST) >= at - timedelta(minutes=2)
 
@@ -421,8 +425,8 @@ def main():
         acct = acct_of(s)
         if acct not in ACCOUNTS or not platforms(acct):
             continue
-        if not due(acct):
-            print(f"⏳ {s['id']}｜{ACCOUNTS[acct]['label']} は {ACCOUNTS[acct].get('time','21:00')} から。この回では出しません")
+        if not due(s):
+            print(f"⏳ {s['id']}｜{ACCOUNTS[acct]['label']} は {time_of(s)} から。この回では出しません")
             continue
         print(f"▶ {s['id']}｜{s['title']}　［{ACCOUNTS[acct]['label']}］")
         for plat, fn in (("instagram", post_instagram), ("threads", post_threads), ("x", post_x)):
