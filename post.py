@@ -291,8 +291,10 @@ def post_instagram(acct, s, base, dry):
             return None
         return publish(acct, "instagram", user, c["id"], None)
     if s.get("video"):  # リール
+        # 表紙は何もしないと最初のコマ。予約に "thumb_offset"（ミリ秒）を書くと、その位置のコマを表紙にする
+        thumb = {"thumb_offset": str(s["thumb_offset"])} if s.get("thumb_offset") else {}
         c = call(acct, "instagram", "POST", f"{user}/media", media_type="REELS",
-                 video_url=f"{base}/{s['video']}", caption=s["caption"], share_to_feed="true")
+                 video_url=f"{base}/{s['video']}", caption=s["caption"], share_to_feed="true", **thumb)
         wait_finished(acct, "instagram", c["id"], "リール", video=True)
         label = "リール"
     elif len(s["images"]) == 1:  # 写真1枚
