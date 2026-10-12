@@ -30,6 +30,10 @@ jobs:
         env:
           IG_TOKEN: ${{ secrets.IG_TOKEN }}
           THREADS_TOKEN: ${{ secrets.THREADS_TOKEN }}
+          IG_TOKEN_BALLET: ${{ secrets.IG_TOKEN_BALLET }}
+          THREADS_TOKEN_BALLET: ${{ secrets.THREADS_TOKEN_BALLET }}
+          IG_TOKEN_NERU: ${{ secrets.IG_TOKEN_NERU }}
+          THREADS_TOKEN_NERU: ${{ secrets.THREADS_TOKEN_NERU }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ github.token }}
           INSIGHTS_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.test && '1' || '0' }}

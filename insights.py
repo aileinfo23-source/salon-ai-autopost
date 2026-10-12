@@ -1,12 +1,12 @@
 """投稿の反応（表示・リーチ・保存など）を集めて、次の内容に活かすまとめを作る（毎週、GitHub Actions から起動）。
 
-- インスタ・Threads の「最近の投稿」をアカウントから取ってくる（自動投稿の分も、手で出した分も入る）
+- アカウントごと（post.py の ACCOUNTS のうち、トークンがあるもの）に、インスタ・Threads の「最近の投稿」を取ってくる（自動投稿の分も、手で出した分も入る）
 - 投稿から24時間以上たったものだけ集計（直後は数字が動き続けるため）
-- 表を insights/ に残し、Claude が「お店の設定.md」を踏まえて、効いたこと・次に作るものをまとめる
+- 表を insights/ に残し、Claude が「設定_〈アカウント〉.md」（無ければ お店の設定.md）を踏まえて、効いたこと・次に作るものをまとめる
 - 「【今週の反応】」の Issue を立てる → GitHub からメールで届く
 
 環境変数
-  IG_TOKEN / THREADS_TOKEN  アクセストークン（未設定のSNSは飛ばす）
+  IG_TOKEN / THREADS_TOKEN（_BALLET・_NERU も）  アクセストークン（未設定のアカウント・SNSは飛ばす）
   ANTHROPIC_API_KEY         まとめを作るため（未設定なら表だけ）
   INSIGHTS_TEST             "1" なら Issue を立てず、ファイルも残さず、表示するだけ
 """
@@ -22,7 +22,7 @@ LABELS = {"views": "表示", "reach": "リーチ", "saved": "保存", "likes": "
           "shares": "シェア", "replies": "返信", "reposts": "再投稿", "quotes": "引用"}
 
 
-def metric_values(platform, media_id, metrics):
+def metric_values(acct, platform, media_id, metrics):
     """まとめて取れなければ1つずつ取る（投稿の種類によって取れない数字があるため）。"""
     def parse(res):
         out = {}
@@ -31,12 +31,12 @@ def metric_values(platform, media_id, metrics):
             out[m["name"]] = m.get("total_value", {}).get("value", vals[0].get("value"))
         return out
     try:
-        return parse(post.call(platform, "GET", f"{media_id}/insights", metric=",".join(metrics)))
+        return parse(post.call(acct, platform, "GET", f"{media_id}/insights", metric=",".join(metrics)))
     except RuntimeError:
         got = {}
         for m in metrics:
             try:
-                got.update(parse(post.call(platform, "GET", f"{media_id}/insights", metric=m)))
+                got.update(parse(post.call(acct, platform, "GET", f"{media_id}/insights", metric=m)))
             except RuntimeError:
                 pass
         return got
@@ -46,13 +46,13 @@ def first_line(text):
     return (text or "").strip().splitlines()[0][:40] if (text or "").strip() else "（本文なし）"
 
 
-def collect(platform, now, min_age):
+def collect(acct, platform, now, min_age):
     if platform == "instagram":
-        items = post.call("instagram", "GET", "me/media", limit="30",
+        items = post.call(acct, "instagram", "GET", "me/media", limit="30",
                           fields="id,caption,media_type,timestamp,permalink").get("data", [])
         text_key, metrics = "caption", IG_METRICS
     else:
-        items = post.call("threads", "GET", "me/threads", limit="30",
+        items = post.call(acct, "threads", "GET", "me/threads", limit="30",
                           fields="id,text,media_type,timestamp,permalink").get("data", [])
         text_key, metrics = "text", TH_METRICS
     rows, skipped = [], 0
@@ -60,11 +60,11 @@ def collect(platform, now, min_age):
         ts = datetime.fromisoformat(it["timestamp"].replace("+0000", "+00:00")).astimezone(JST)
         if now - ts < min_age:
             continue
-        vals = metric_values(platform, it["id"], metrics)
+        vals = metric_values(acct, platform, it["id"], metrics)
         if not vals:
             skipped += 1
             continue
-        row = {"platform": platform, "id": it["id"], "date": ts.strftime("%Y-%m-%d"),
+        row = {"account": acct, "platform": platform, "id": it["id"], "date": ts.strftime("%Y-%m-%d"),
                "days": (now - ts).days, "type": it.get("media_type"), "title": first_line(it.get(text_key)),
                "permalink": it.get("permalink"), **vals}
         if platform == "instagram" and row.get("reach"):
@@ -115,42 +115,45 @@ def main():
     test = os.environ.get("INSIGHTS_TEST") == "1"
     now = datetime.now(JST)
     rows, notes = [], []
-    for platform, env in (("instagram", "IG_TOKEN"), ("threads", "THREADS_TOKEN")):
-        if not os.environ.get(env):
-            continue
-        try:
-            rows += collect(platform, now, timedelta(0) if test else timedelta(hours=24))  # テストでは今日の投稿も見る
-        except RuntimeError as e:
-            if platform == "threads" and ("権限" in str(e) or "permission" in str(e).lower() or '"code":10' in str(e)):
-                notes.append("Threadsの反応は取れませんでした（アプリに `threads_manage_insights` の権限が必要です）")
-            else:
-                notes.append(f"{platform}の反応を取れませんでした：{e}")
+    for acct, conf in post.ACCOUNTS.items():
+        for platform in ("instagram", "threads"):
+            if not post.has_token(acct, platform):
+                continue
+            try:
+                # テストでは今日の投稿も見る
+                rows += collect(acct, platform, now, timedelta(0) if test else timedelta(hours=24))
+            except RuntimeError as e:
+                if platform == "threads" and ("権限" in str(e) or "permission" in str(e).lower() or '"code":10' in str(e)):
+                    notes.append(f"{conf['label']}：Threadsの反応は取れませんでした（アプリに `threads_manage_insights` の権限が必要です）")
+                else:
+                    notes.append(f"{conf['label']}：{platform}の反応を取れませんでした：{e}")
+            if test and platform == "threads":
+                # 投稿が無くても、数字を読む権限があるかを確かめる（アカウント全体の表示回数を読んでみる）
+                try:
+                    post.call(acct, "threads", "GET", "me/threads_insights", metric="views")
+                    print(f"✅ {conf['label']} Threadsの数字を読む権限：あり")
+                except RuntimeError as e:
+                    print(f"❌ {conf['label']} Threadsの数字を読む権限：なし（{e}）")
 
-    if test and os.environ.get("THREADS_TOKEN"):
-        # 投稿が無くても、数字を読む権限があるかを確かめる（アカウント全体の表示回数を読んでみる）
-        try:
-            post.call("threads", "GET", "me/threads_insights", metric="views")
-            print("✅ Threadsの数字を読む権限：あり")
-        except RuntimeError as e:
-            print(f"❌ Threadsの数字を読む権限：なし（{e}）")
-
-    ig = [r for r in rows if r["platform"] == "instagram"]
-    th = [r for r in rows if r["platform"] == "threads"]
     scope = "テスト・今日の投稿も含む" if test else "投稿から24時間以上たったもの"
     parts = [f"# 投稿の反応（{now:%Y-%m-%d} 時点・{scope}）", ""]
-    if ig:
-        parts += ["## インスタ", table(ig, "instagram"), ""]
-    if th:
-        parts += ["## Threads", table(th, "threads"), ""]
+    for acct, conf in post.ACCOUNTS.items():
+        mine = [r for r in rows if r["account"] == acct]
+        if not mine:
+            continue
+        section = [f"## {conf['label']}", ""]
+        for platform, name in (("instagram", "インスタ"), ("threads", "Threads")):
+            sub = [r for r in mine if r["platform"] == platform]
+            if sub:
+                section += [f"### {name}", table(sub, platform), ""]
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            settings = f"設定_{acct}.md" if os.path.exists(f"設定_{acct}.md") else "お店の設定.md"
+            section += ["### まとめ（AI）", summarize("\n".join(section), open(settings).read()), ""]
+        parts += section
     if not rows:
         parts += ["まだ集計できる投稿がありません。", ""]
     parts += [f"※ {n}" for n in notes]
-    report = "\n".join(parts)
-
-    summary = ""
-    if rows and os.environ.get("ANTHROPIC_API_KEY"):
-        summary = summarize(report, open("お店の設定.md").read())
-    full = report + ("\n\n## まとめ（AI）\n" + summary if summary else "")
+    full = "\n".join(parts)
     print(full)
     if test:
         print("\n【テスト】Issue もファイルも作っていません")
