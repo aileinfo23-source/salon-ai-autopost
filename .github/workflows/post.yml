@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: write
+  issues: write   # 予約の残りが少ないときのお知らせ（stock.py）
 
 concurrency:
   group: instagram-post   # 同時に2つ動いて二重投稿しないように
@@ -63,3 +64,9 @@ jobs:
             git pull --rebase --quiet
             git push
           fi
+      - name: 予約の残りを確かめる（少なければメールで知らせる）
+        if: always()
+        continue-on-error: true   # お知らせの失敗で、投稿そのものを失敗扱いにしない
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 stock.py
