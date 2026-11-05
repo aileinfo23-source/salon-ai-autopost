@@ -236,21 +236,41 @@ def parse_time(t):
     return datetime.strptime(t, "%Y-%m-%dT%H:%M:%S%z")
 
 
-def find_published(acct, platform, user, text):
-    """最近の投稿の中に、同じ文章で30分以内に出たものがあれば、そのIDを返す。"""
+def find_published(acct, platform, user, text, within=timedelta(minutes=30)):
+    """最近の投稿の中に、同じ書き出しで within 以内に出たものがあれば、そのIDを返す。"""
     if platform == "instagram":
-        items = call(acct, "instagram", "GET", f"{user}/media", fields="id,caption,timestamp", limit=5).get("data", [])
+        items = call(acct, "instagram", "GET", f"{user}/media", fields="id,caption,timestamp", limit=10).get("data", [])
         key = "caption"
     else:
-        items = call(acct, "threads", "GET", f"{user}/threads", fields="id,text,timestamp", limit=5).get("data", [])
+        items = call(acct, "threads", "GET", f"{user}/threads", fields="id,text,timestamp", limit=10).get("data", [])
         key = "text"
     head = text.strip()[:40]
     now = datetime.now(timezone.utc)
     for it in items:
         if (it.get(key) or "").strip()[:40] == head and it.get("timestamp") \
-                and now - parse_time(it["timestamp"]) < timedelta(minutes=30):
+                and now - parse_time(it["timestamp"]) < within:
             return it["id"]
     return None
+
+
+# 出す前の確かめ（2026-11-05〜）。posted.json に記録が無くても、半日以内に同じ書き出しの投稿が
+# もう出ていたら、出さずにそのIDを記録する（11/4 hw02 の二重投稿：記録の古い版で動いた回がもう一度出した）。
+# 同じ書き出しの予約は5日以上あけてあるので、半日なら別の投稿と取り違えない。
+ALREADY_WITHIN = timedelta(hours=12)
+
+
+def already_out(acct, platform, s):
+    """この予約が、もうその SNS に出ていればIDを返す。ストーリー・Xは一覧で確かめられない（Xは読むのも有料）ので見ない。"""
+    if s.get("story") or platform not in ("instagram", "threads"):
+        return None
+    if platform == "instagram":
+        user = os.environ.get(ACCOUNTS[acct]["instagram"]["user"]) or \
+            call(acct, "instagram", "GET", "me", fields="user_id").get("user_id")
+        text = s["caption"]
+    else:
+        user = call(acct, "threads", "GET", "me", fields="id")["id"]
+        text = s["threads_text"]
+    return find_published(acct, platform, user, text, within=ALREADY_WITHIN)
 
 
 def publish(acct, platform, user, creation_id, text):
@@ -437,7 +457,13 @@ def main():
             if not wants(s, plat):
                 continue
             try:
-                media_id = fn(acct, s, base, dry)
+                found = already_out(acct, plat, s)
+                if found:
+                    print(f"  ⚠ {plat} にはもう出ています（media_id={found}）。"
+                          + ("テストなので何もしません" if dry else "出さずに記録だけします"))
+                    if dry:
+                        continue
+                media_id = found or fn(acct, s, base, dry)
             except PartialPost as e:
                 media_id = e.first_id   # 出せた分は記録する（二重投稿を防ぐ）
                 failures.append(f"{s['id']} {plat}：{e}")

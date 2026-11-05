@@ -29,6 +29,10 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 起動した時の版ではなく、動き始めた時の最新の main を使う。
+          # 順番待ちしていた回が古い posted.json で動き、先の回が出した分をもう一度出していた（2026-11-04 hw02）
+          ref: main
       - name: 今日の分を投稿
         env:
           IG_TOKEN: ${{ secrets.IG_TOKEN }}
@@ -59,10 +63,20 @@ jobs:
           if ! git diff --quiet posted.json; then
             git config user.name "salon-ai-autopost"
             git config user.email "actions@users.noreply.github.com"
-            git add posted.json
-            git commit -m "投稿記録 $(TZ=Asia/Tokyo date +%F)"
-            git pull --rebase --quiet
-            git push
+            cp posted.json "$RUNNER_TEMP/posted.mine.json"
+            # 先に別の回が記録を足していても、この回の記録を消さずに足す（衝突で記録が消えると二重投稿になる）
+            for i in 1 2 3 4 5; do
+              git fetch --quiet origin main
+              git reset --quiet --hard origin/main
+              python3 record.py "$RUNNER_TEMP/posted.mine.json"
+              git diff --quiet posted.json && exit 0
+              git add posted.json
+              git commit --quiet -m "投稿記録 $(TZ=Asia/Tokyo date +%F)"
+              git push --quiet origin HEAD:main && exit 0
+              sleep $((i * 5))
+            done
+            echo "::error::投稿の記録を残せませんでした。posted.json に手で足してください：$(cat "$RUNNER_TEMP/posted.mine.json" | tail -c 2000)"
+            exit 1
           fi
       - name: 予約の残りを確かめる（少なければメールで知らせる）
         if: always()
